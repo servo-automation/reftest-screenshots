@@ -3,13 +3,10 @@ from PIL import Image
 from flask import Flask, Response, request
 from io import BytesIO
 from pyvirtualdisplay import Display
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver import Chrome
+from threading import Lock
 
-import contextlib, json, os, urllib2
-
-display = Display(visible=0, size=(1280, 720))
-display.start()
-app = Flask(__name__)
+import contextlib, json, os, time, urllib2
 
 SCRIPT = '''
 <script>
@@ -23,6 +20,27 @@ setTimeout(function() {
 }, 500);
 </script>
 '''
+
+class Driver(object):
+    def __init__(self):
+        self.lock = Lock()
+        print 'Starting driver...'
+        self.driver = Chrome()
+        self.driver.set_window_position(0, 0)
+        self.driver.set_window_size(1280, 720)
+
+    def take_shot(self, url, png):
+        with self.lock:
+            self.driver.get(url)
+            time.sleep(1000)        # delay for javascript
+            self.driver.get_screenshot_as_file(png)
+
+
+display = Display(visible=0, size=(1280, 720))
+display.start()
+engine = Driver()
+app = Flask(__name__)
+
 
 @app.route("/")
 def index():
@@ -42,17 +60,6 @@ def index():
         if not result:
             return 'null'
 
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument('--remote-debugging-port=9222')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-gpu')
-    if os.environ.get('GOOGLE_CHROME_PATH'):
-        chrome_options.binary_location = os.environ['GOOGLE_CHROME_PATH']
-    print 'Starting driver...'
-    driver = Chrome(chrome_options=chrome_options)
-    driver.set_window_position(0, 0)
-    driver.set_window_size(1280, 720)
     text = result[0]
 
     analyzer = 'http://hoppipolla.co.uk/410/reftest-analyser-structured.xhtml'
@@ -65,17 +72,15 @@ def index():
         out.write(html)
         print 'Modified analyzer.'
 
-    driver.get('file://' + os.path.abspath(modified))
-    png = 'result_%s.png' % build
-    driver.get_screenshot_as_file(png)
+    engine.take_shot('file://' + os.path.abspath(modified),
+                     'result_%s.png' % build)
 
-    elem = driver.find_element_by_id('svg')
+    elem = engine.driver.find_element_by_id('svg')
     size, pos = elem.size, elem.location
     img = Image.open(png)
     cropped = img.crop((pos['x'], pos['y'], pos['x'] + size['width'], pos['y'] + size['height']))
     byte_arr = BytesIO()
     cropped.save(byte_arr, format='PNG')
-    driver.quit()
     os.remove(png)
     os.remove(modified)
 
