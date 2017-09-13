@@ -2,23 +2,10 @@
 from PIL import Image
 from StringIO import StringIO
 from base64 import b64encode, b64decode
-from flask import Flask, Response, request
+from flask import Flask, request
 from io import BytesIO
 
-import contextlib, json, os, time, urllib2
-
-SCRIPT = '''
-<script>
-var content = %r;
-
-setTimeout(function() {
-  process_log(content);
-  show_images(0);
-  show_differences({"checked": true});
-  document.getElementById("images").removeChild(document.getElementById("imgcontrols"));
-}, 500);
-</script>
-'''
+import contextlib, json, os, urllib2
 
 app = Flask(__name__)
 
@@ -48,8 +35,9 @@ def index():
 
     resp = []
     for res in result:
+        res = json.loads(res)
         data = res['extra']['reftest_screenshots']
-        test, ref = data[0], data[1]
+        test, ref = data[0], data[2]
         test_img = Image.open(BytesIO(b64decode(test['screenshot'])))
         ref_img = Image.open(BytesIO(b64decode(ref['screenshot'])))
         blend_img = Image.blend(test_img, ref_img, alpha=0.75)
