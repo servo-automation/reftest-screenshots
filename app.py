@@ -10,28 +10,41 @@ import contextlib, json, os, urllib2
 app = Flask(__name__)
 
 
+def respond_with_json(obj, code=200):
+    return app.response_class(
+        response=json.dumps(obj),
+        status=code,
+        mimetype='application/json'
+    )
+
+
 @app.route("/")
 def index():
     url = request.args.get("url", "")
     if not url:
-        return 'null'
+        return respond_with_json({
+            "msg": "url is required as a parameter"
+        }, 400)
 
     summary_url = url + '/steps/test/logs/css-errorsummary.log/text'
     log_url = url + '/steps/test/logs/test-css.log/text'
     build = url.split('/')[-1]
-    print summary_url
-    print log_url
 
-    with contextlib.closing(urllib2.urlopen(summary_url)) as fd_sum:
-        fails = map(lambda s: json.loads(s)['test'],
-                    filter(lambda s: '"status": "FAIL"' in s,
-                           fd_sum.read().split('\n')))
+    try:
+        with contextlib.closing(urllib2.urlopen(summary_url)) as fd_sum:
+            fails = map(lambda s: json.loads(s)['test'],
+                        filter(lambda s: '"status": "FAIL"' in s,
+                               fd_sum.read().split('\n')))
 
-    with contextlib.closing(urllib2.urlopen(log_url)) as fd_log:
-        result = filter(lambda s: 'screenshot' in s and any(f in s for f in fails),
-                        fd_log.read().split('\n'))
-        if not result:
-            return '{}'
+        with contextlib.closing(urllib2.urlopen(log_url)) as fd_log:
+            result = filter(lambda s: 'screenshot' in s and any(f in s for f in fails),
+                            fd_log.read().split('\n'))
+            if not result:
+                return respond_with_json({})
+    except urllib2.HTTPError:
+        return respond_with_json({
+            "msg": "error getting logs from buildbot"
+        }, 500)
 
     resp = []
     for res in result:
@@ -56,11 +69,7 @@ def index():
             'blend': b64encode(buf.getvalue()),
         })
 
-    return app.response_class(
-        response=json.dumps(resp),
-        status=200,
-        mimetype='application/json'
-    )
+    return respond_with_json(resp)
 
 
 port = int(os.environ.get('PORT', 5000))
